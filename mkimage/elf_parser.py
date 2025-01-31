@@ -36,7 +36,7 @@ class ElfParser:
         self.entry = None
         with open(filename, "rb") as file:
             elf = ELFFile(file)
-            print (elf.header)
+            print(elf.header)
             self.executable = elf.header["e_type"] == "ET_EXEC"
             self.entry = elf.header["e_entry"]
 
@@ -93,8 +93,6 @@ class ElfParser:
             elf = ELFFile(file)
             for section in elf.iter_sections():
                 if not isinstance(section, RelocationSection):
-                    continue
-                if section.name.endswith(".dyn"):
                     continue
                 symbols = elf.get_section(section["sh_link"])
                 for relocation in section.iter_relocations():

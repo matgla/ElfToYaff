@@ -23,18 +23,21 @@ MEMORY
   image(rwx) : ORIGIN = 0x00000000, LENGTH = 0xffffffff
 }
 
-ENTRY(main)
+PHDRS
+{
+  code         PT_LOAD;
+  data         PT_LOAD;
+}
+
 
 SECTIONS
 {
   .text :
   {
-    . = ALIGN(16);
+    . = ALIGN(8);
     KEEP(*(.entry))
     *(.text)
     *(.text*)
-    *(.rel.text)
-    *(.rel.text*)
     *(.glue_7)
     *(.glue_7t)
     *(.eh_frame)
@@ -42,11 +45,8 @@ SECTIONS
     KEEP(*(.fini))
     *(.rodata)
     *(.rodata*)
-    . = ALIGN(16);
-    *(.plt*)
-    *(.plt.rel*)
-    . = ALIGN(16);
-  } > image
+    . = ALIGN(8);
+  } > image :code
 
   .init_arrays :
   {
@@ -65,7 +65,8 @@ SECTIONS
     KEEP(*SORT(.fini_array.*))
     KEEP(*SORT(.fini_array))
     PROVIDE_HIDDEN(__fini_array_end = .);
-  } > image
+    . = ALIGN(4);
+  } > image :code
 
   .data :
   {
@@ -73,7 +74,7 @@ SECTIONS
     *(.data)
     *(.data*)
     . = ALIGN(8);
-  } > image 
+  } > image :data
 
   .bss :
   {
@@ -82,13 +83,22 @@ SECTIONS
     *(.bss*)
     *(COMMON)
     . = ALIGN(8);
-  } > image
+  } > image :data
 
   .got :
   {
-    *(.got*)
-  } > image
+    *(.got)
+  } > image :data
 
+  .got.plt :
+  {
+    *(.got.plt)
+  } > image :data
+
+  .plt :
+  {
+    *(.plt*)
+  } > image :code
 
   .dynsym :
   {
@@ -111,4 +121,23 @@ SECTIONS
     *(.ARM.exidx* .gnu.linkonce.armextab.*)
   } > image 
 
+  .plt.rel : 
+  {
+    *(.plt.rel*)
+  } > image
+
+  .dynamic : 
+  {
+    *(.dynamic)
+  } > image
+
+  .interp : 
+  {
+    *(.interp)
+  } > image
+
+  .hash :
+  {
+    *(.hash)
+  } > image
 }

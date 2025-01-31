@@ -141,6 +141,9 @@ class Application:
             return False
 
     def __fetch_section(self, name, position):
+        if name not in self.elf.sections:
+            self.logger.info("Section '" + name + '" not found in ELF')
+            return None
         section = self.elf.sections[name]
         self.__validate_section(section, position, name)
         self.logger.info("Found '" + name + "' with size: " + hex(section["size"]))
@@ -182,14 +185,35 @@ class Application:
         self.got_section_address = (
             self.bss_section["address"] + self.bss_section["size"]
         )
-        self.got_section = self.__fetch_section(".got", self.got_section_address)
-        self.got = bytearray(self.got_section["data"])
+
+        if self.__has_section(".got"):
+            self.got_section = self.__fetch_section(".got", self.got_section_address)
+            self.got = bytearray(self.got_section["data"])
+        else:
+            self.got = bytearray()
+
+        self.got_plt_address = self.got_section_address + len(self.got)
+        if self.__has_section(".got.plt"):
+            self.got_plt_section = self.__fetch_section(
+                ".got.plt", self.got_plt_address
+            )
+            self.got_plt = bytearray(self.got_plt_section["data"])
+        else:
+            self.got_plt = bytearray()
+
+        self.plt_address = self.got_plt_address + len(self.got_plt)
+        if self.__has_section(".plt"):
+            self.plt_section = self.__fetch_section(".plt", self.plt_address)
+            self.plt = bytearray(self.plt_section["data"])
+        else:
+            self.got_plt = bytearray()
 
     def __process_symbols(self):
         self.logger.info("Processing symbol table")
         self.symbols = {}
 
         self.main_is_entry = False
+
         if "main" in self.elf.symbols and self.elf.entry != None:
             self.main_is_entry = (self.elf.entry & 0xFFFFFFFE) == (
                 self.elf.symbols["main"]["value"] & 0xFFFFFFFE
@@ -276,6 +300,7 @@ class Application:
         skipped_relocations = [
             "R_ARM_CALL",  # PC Relative
             "R_ARM_JUMP24",  # PC Relative
+            "R_ARM_THM_JUMP24",
             "R_ARM_THM_CALL",  # PC Relative
             "R_ARM_ABS32",  # allowed for .data
             "R_ARM_PREL31",  # PC relative
@@ -290,6 +315,7 @@ class Application:
         self.relocations = RelocationSet()
 
         for relocation in self.elf.relocations:
+            print(relocation)
             if relocation["info_type"] in skipped_relocations:
                 continue
             elif relocation["info_type"] == "R_ARM_GOT_BREL":
@@ -499,10 +525,10 @@ class Application:
         else:
             init_offset = 0
 
-        self.__process_data_relocations(
-            self.text_section["address"] + self.text_section["size"],
-            self.text_section["address"] + self.text_section["size"] + init_offset,
-        )
+        # self.__process_data_relocations(
+        #     self.text_section["address"] + self.text_section["size"],
+        #     self.text_section["address"] + self.text_section["size"] + init_offset,
+        # )
         self.__dump_relocations()
 
     def __fix_offsets_in_code(self):
@@ -768,7 +794,7 @@ class Application:
             len(symbol_table_relocations),
             len(local_relocations),
             len(data_relocations),
-            len(self.got),
+            0,
         )
 
         exported_symbol_table = self.__build_binary_symbol_table_for(
@@ -790,6 +816,9 @@ class Application:
         image += struct.pack(
             "<HH", len(self.exported_symbol_table), len(self.imported_symbol_table)
         )
+
+        image += struct.pack("<III", len(self.got), len(self.got_plt), len(self.plt))
+
         image += Application.__align_bytes(
             bytearray(Path(self.args.input).stem + "\0", "ascii"), alignment
         )
@@ -809,6 +838,9 @@ class Application:
         image += self.text
         image += self.init_arrays
         image += self.data
+        image += self.got
+        image += self.got_plt
+        image += self.plt
         self.image = image
         if not self.args.dryrun:
             self.logger.info("Writing to: " + self.args.output)
