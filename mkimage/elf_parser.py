@@ -24,6 +24,7 @@ from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
 from elftools.elf.relocation import RelocationSection
 from elftools.elf.descriptions import describe_reloc_type
+from elftools.elf.dynamic import DynamicSection
 
 
 class ElfParser:
@@ -31,14 +32,28 @@ class ElfParser:
         self.symbols = ElfParser._parse_symbols(filename)
         self.sections = ElfParser._parse_sections(filename)
         self.relocations = ElfParser._parse_relocations(filename)
+        self.libraries = ElfParser._parse_needed_libraries(filename)
         self.filename = filename
         self.executable = None
         self.entry = None
         with open(filename, "rb") as file:
             elf = ELFFile(file)
-            print(elf.header)
             self.executable = elf.header["e_type"] == "ET_EXEC"
             self.entry = elf.header["e_entry"]
+
+    @staticmethod
+    def _parse_needed_libraries(filename):
+        libraries = []
+        with open(filename, "rb") as file:
+            elf = ELFFile(file)
+            for section in elf.iter_sections():
+                if isinstance(section, DynamicSection):
+                    for tag in section.iter_tags():
+                        if tag["d_tag"] == "DT_NEEDED":
+                            libraries.append(tag.needed) 
+        return libraries 
+
+ 
 
     @staticmethod
     def _parse_symbols(filename):
@@ -48,7 +63,9 @@ class ElfParser:
             for section in elf.iter_sections():
                 if not isinstance(section, SymbolTableSection):
                     continue
+
                 for symbol in section.iter_symbols():
+                
                     symbol_type = symbol["st_info"]["type"]
                     section_index = symbol["st_shndx"]
 

@@ -182,8 +182,15 @@ class Application:
         self.bss_section = self.__fetch_section(".bss", bss_section_address)
         self.bss = bytearray(self.bss_section["data"])
 
+        self.plt_address = bss_section_address + len(self.bss)
+        if self.__has_section(".plt"):
+            self.plt_section = self.__fetch_section(".plt", self.plt_address)
+            self.plt = bytearray(self.plt_section["data"])
+        else:
+            self.plt = bytearray()
+
         self.got_section_address = (
-            self.bss_section["address"] + self.bss_section["size"]
+            self.plt_address + len(self.plt)
         )
 
         if self.__has_section(".got"):
@@ -201,12 +208,6 @@ class Application:
         else:
             self.got_plt = bytearray()
 
-        self.plt_address = self.got_plt_address + len(self.got_plt)
-        if self.__has_section(".plt"):
-            self.plt_section = self.__fetch_section(".plt", self.plt_address)
-            self.plt = bytearray(self.plt_section["data"])
-        else:
-            self.got_plt = bytearray()
 
     def __process_symbols(self):
         self.logger.info("Processing symbol table")
@@ -236,7 +237,6 @@ class Application:
             is_global_and_visible = (
                 data["binding"] == "STB_GLOBAL" and data["visibility"] != "STV_HIDDEN"
             )
-
             self.symbols[name] = data
 
             if is_global_and_visible or is_main:
@@ -310,12 +310,12 @@ class Application:
             "R_ARM_THM_JUMP8",  # PC relative
             "R_ARM_THM_JUMP11",  # PC relative
             # "R_ARM_JUMP_SLOT",  # TODO
+            "R_ARM_GLOB_DAT",
         ]
 
         self.relocations = RelocationSet()
 
         for relocation in self.elf.relocations:
-            print(relocation)
             if relocation["info_type"] in skipped_relocations:
                 continue
             elif relocation["info_type"] == "R_ARM_GOT_BREL":
@@ -328,7 +328,6 @@ class Application:
                     )
             elif relocation["info_type"] == "R_ARM_JUMP_SLOT":
                 visibility = self.symbols[relocation["symbol_name"]]["localization"]
-                print(relocation)
                 self.relocations.add_symbol_table_relocation(
                     relocation, self.got_section_address
                 )
@@ -354,6 +353,7 @@ class Application:
             "R_ARM_JUMP24",  # PC Relative
             "R_ARM_GOT_BREL",  # GOT
             "R_ARM_THM_CALL",  # PC Relative
+            "R_ARM_GLOB_DAT",
         ]
 
         for relocation in self.elf.relocations:
@@ -817,7 +817,7 @@ class Application:
             "<HH", len(self.exported_symbol_table), len(self.imported_symbol_table)
         )
 
-        image += struct.pack("<III", len(self.got), len(self.got_plt), len(self.plt))
+        image += struct.pack("<IIII", len(self.got), len(self.got_plt), len(self.plt), 0)
 
         image += Application.__align_bytes(
             bytearray(Path(self.args.input).stem + "\0", "ascii"), alignment
@@ -831,6 +831,7 @@ class Application:
         for rel in relocations:
             image += struct.pack("<II", rel["index"], rel["offset"])
 
+
         image += imported_symbol_table
         image += exported_symbol_table
 
@@ -838,9 +839,9 @@ class Application:
         image += self.text
         image += self.init_arrays
         image += self.data
+        image += self.plt
         image += self.got
         image += self.got_plt
-        image += self.plt
         self.image = image
         if not self.args.dryrun:
             self.logger.info("Writing to: " + self.args.output)
@@ -848,12 +849,10 @@ class Application:
                 file.write(image)
 
     def __resolve_dependant_libraries(self):
-        self.dependant_libraries = []
-        if args.libraries is None:
-            return
-
-        for line in args.libraries:
-            self.dependant_libraries += line.replace(",", ";").split(";")
+        self.dependant_libraries = self.elf.libraries 
+        if args.libraries is not None:
+            for line in args.libraries:
+                self.dependant_libraries += line.replace(",", ";").split(";")
 
         self.logger.info("Module depends on:")
         for lib in self.dependant_libraries:
